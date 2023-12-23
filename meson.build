@@ -64,6 +64,8 @@ config_h.set('HAVE_GTK_X11', gtkx11_dep.found())
 gtkwayland_dep = dependency('gtk4-wayland', required: false)
 config_h.set('HAVE_GTK_WAYLAND', gtkwayland_dep.found())
 
+adwaita = dependency('libadwaita-1')
+
 configure_file(output: 'config.h', configuration: config_h)
 
 subdir('data')

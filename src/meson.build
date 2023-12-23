@@ -100,6 +100,7 @@ executable('xdg-desktop-portal-gtk',
   ],
   dependencies: [
     portal_deps,
+    adwaita,
     gtkx11_dep,
     gtkwayland_dep,
   ],

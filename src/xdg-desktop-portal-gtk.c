@@ -20,6 +20,7 @@
 
 #define _GNU_SOURCE 1
 
+#include <adwaita.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <gio/gdesktopappinfo.h>
@@ -190,7 +191,7 @@ int main(int argc, char* argv[]) {
     /* Avoid pointless and confusing recursion */
     g_unsetenv("GTK_USE_PORTAL");
 
-    gtk_init(&argc, &argv);
+    adw_init();
 
     context = g_option_context_new("- portal backends");
     g_option_context_set_summary(context, "A backend implementation for xdg-desktop-portal.");
