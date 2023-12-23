@@ -71,6 +71,17 @@ portal_resources = gnome.compile_resources(
   source_dir: '.',
 )
 
+portal_sources = files(
+  'request.c',
+  'externalwindow.c',
+  'externalwindow-wayland.c',
+  'externalwindow-x11.c',
+  'filechooser.c',
+  'settings.c',
+  'fc-monitor.c',
+  'utils.c'
+)
+
 portal_built_sources = [
   portal_resources,
 ]
@@ -110,20 +121,20 @@ executable('xdg-desktop-portal-gtk',
   install_dir: libexecdir,
 )
 
-executable('testappchooser',
-  sources: [
-    'testappchooser.c',
-    'appchooserrow.c',
-    'appchooserdialog.c',
-    portal_resources,
-  ],
-  dependencies: [
-    portal_deps,
-    gtkx11_dep,
-  ],
-  c_args: [
-    '-DGETTEXT_PACKAGE="@0@"'.format(meson.project_name()),
-    '-DLOCALEDIR="@0@"'.format(localedir),
-  ],
-  include_directories: [root_inc],
-)
+# executable('testappchooser',
+#   sources: [
+#     'testappchooser.c',
+#     'appchooserrow.c',
+#     'appchooserdialog.c',
+#     portal_resources,
+#   ],
+#   dependencies: [
+#     portal_deps,
+#     gtkx11_dep,
+#   ],
+#   c_args: [
+#     '-DGETTEXT_PACKAGE="@0@"'.format(meson.project_name()),
+#     '-DLOCALEDIR="@0@"'.format(localedir),
+#   ],
+#   include_directories: [root_inc],
+# )

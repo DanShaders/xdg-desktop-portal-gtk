@@ -106,46 +106,46 @@ static void on_bus_acquired(GDBusConnection* connection, gchar const* name, gpoi
     }
 
 #ifdef BUILD_APPCHOOSER
-    if (!app_chooser_init(connection, &error)) {
-        g_warning("error: %s\n", error->message);
-        g_clear_error(&error);
-    }
+    // if (!app_chooser_init(connection, &error)) {
+    //     g_warning("error: %s\n", error->message);
+    //     g_clear_error(&error);
+    // }
 #endif
 
-    if (!print_init(connection, &error)) {
-        g_warning("error: %s\n", error->message);
-        g_clear_error(&error);
-    }
+    // if (!print_init(connection, &error)) {
+    //     g_warning("error: %s\n", error->message);
+    //     g_clear_error(&error);
+    // }
 
-    if (!notification_init(connection, &error)) {
-        g_warning("error: %s\n", error->message);
-        g_clear_error(&error);
-    }
+    // if (!notification_init(connection, &error)) {
+    //     g_warning("error: %s\n", error->message);
+    //     g_clear_error(&error);
+    // }
 
-    if (!inhibit_init(connection, &error)) {
-        g_warning("error: %s\n", error->message);
-        g_clear_error(&error);
-    }
+    // if (!inhibit_init(connection, &error)) {
+    //     g_warning("error: %s\n", error->message);
+    //     g_clear_error(&error);
+    // }
 
-    if (!access_init(connection, &error)) {
-        g_warning("error: %s\n", error->message);
-        g_clear_error(&error);
-    }
+    // if (!access_init(connection, &error)) {
+    //     g_warning("error: %s\n", error->message);
+    //     g_clear_error(&error);
+    // }
 
-    if (!account_init(connection, &error)) {
-        g_warning("error: %s\n", error->message);
-        g_clear_error(&error);
-    }
+    // if (!account_init(connection, &error)) {
+    //     g_warning("error: %s\n", error->message);
+    //     g_clear_error(&error);
+    // }
 
-    if (!email_init(connection, &error)) {
-        g_warning("error: %s\n", error->message);
-        g_clear_error(&error);
-    }
+    // if (!email_init(connection, &error)) {
+    //     g_warning("error: %s\n", error->message);
+    //     g_clear_error(&error);
+    // }
 
-    if (!dynamic_launcher_init(connection, &error)) {
-        g_warning("error: %s\n", error->message);
-        g_clear_error(&error);
-    }
+    // if (!dynamic_launcher_init(connection, &error)) {
+    //     g_warning("error: %s\n", error->message);
+    //     g_clear_error(&error);
+    // }
 
 #ifdef BUILD_LOCKDOWN
     if (!lockdown_init(connection, &error)) {
