@@ -72,7 +72,7 @@ ExternalWindow* create_external_window_from_handle(char const* handle_str) {
     return NULL;
 }
 
-void external_window_set_parent_of(ExternalWindow* external_window, GdkWindow* child_window) {
+void external_window_set_parent_of(ExternalWindow* external_window, GdkSurface* child_window) {
     EXTERNAL_WINDOW_GET_CLASS(external_window)->set_parent_of(external_window, child_window);
 }
 

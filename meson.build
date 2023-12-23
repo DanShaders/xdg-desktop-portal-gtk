@@ -54,14 +54,14 @@ portal_deps = [
   dependency('xdg-desktop-portal', version: '>=1.14.0'),
   dependency('glib-2.0', version: '>=2.44'),
   dependency('gio-unix-2.0'),
-  dependency('gtk+-3.0', version: '>=3.14'),
-  dependency('gtk+-unix-print-3.0'),
+  dependency('gtk4', version: '>=4.0'),
+  dependency('gtk4-unix-print', version: '>=4.0'),
 ]
 
-gtkx11_dep = dependency('gtk+-x11-3.0', required: false)
+gtkx11_dep = dependency('gtk4-x11', required: false)
 config_h.set('HAVE_GTK_X11', gtkx11_dep.found())
 
-gtkwayland_dep = dependency('gtk+-wayland-3.0', version: '>=3.21.5', required: false)
+gtkwayland_dep = dependency('gtk4-wayland', required: false)
 config_h.set('HAVE_GTK_WAYLAND', gtkwayland_dep.found())
 
 configure_file(output: 'config.h', configuration: config_h)

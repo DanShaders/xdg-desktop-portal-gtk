@@ -21,7 +21,7 @@
 #include "externalwindow-wayland.h"
 
 #include <gdk/gdk.h>
-#include <gdk/gdkwayland.h>
+#include <gdk/wayland/gdkwayland.h>
 
 #include "config.h"
 
@@ -71,11 +71,11 @@ ExternalWindowWayland* external_window_wayland_new(char const* handle_str) {
 }
 
 static void external_window_wayland_set_parent_of(ExternalWindow* external_window,
-                                                  GdkWindow* child_window) {
+                                                  GdkSurface* child_window) {
     ExternalWindowWayland* external_window_wayland = EXTERNAL_WINDOW_WAYLAND(external_window);
     char* handle_str = external_window_wayland->handle_str;
 
-    if (!gdk_wayland_window_set_transient_for_exported(child_window, handle_str)) {
+    if (!gdk_wayland_toplevel_set_transient_for_exported(GDK_TOPLEVEL(child_window), handle_str)) {
         g_warning("Failed to set portal window transient for external parent");
     }
 }

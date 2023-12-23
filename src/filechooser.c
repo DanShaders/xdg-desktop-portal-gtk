@@ -36,19 +36,22 @@
 
 #include "config.h"
 #include "externalwindow.h"
-#include "gtkbackports.h"
 #include "request.h"
 #include "utils.h"
 #include "xdg-desktop-portal-dbus.h"
+
+#define FILECHOOSER_SETTINGS_SCHEMA "org.gnome.portal.filechooser"
+#define FILECHOOSER_SETTINGS_PATH "/org/gnome/portal/filechooser/"
 
 typedef struct {
     XdpImplFileChooser* impl;
     GDBusMethodInvocation* invocation;
     Request* request;
-    GtkWidget* dialog;
+    GtkWindow* dialog;
     GtkFileChooserAction action;
     gboolean multiple;
     ExternalWindow* external_parent;
+    char* app_id;
 
     GSList* files;
 
@@ -65,9 +68,9 @@ typedef struct {
 static void file_dialog_handle_free(gpointer data) {
     FileDialogHandle* handle = data;
 
+    g_clear_pointer(&handle->app_id, g_free);
     g_clear_object(&handle->external_parent);
-    g_object_unref(handle->dialog);
-    g_object_unref(handle->request);
+    g_clear_object(&handle->request);
     g_slist_free_full(handle->files, g_free);
     g_slist_free_full(handle->uris, g_free);
     g_hash_table_unref(handle->choices);
@@ -76,8 +79,75 @@ static void file_dialog_handle_free(gpointer data) {
 }
 
 static void file_dialog_handle_close(FileDialogHandle* handle) {
-    gtk_widget_destroy(handle->dialog);
+    g_clear_pointer(&handle->dialog, gtk_window_destroy);
     file_dialog_handle_free(handle);
+}
+
+static GSettings* get_filechooser_settings_for_app_id(char const* app_id) {
+    g_autoptr(GSettings) settings = NULL;
+    g_autoptr(GString) path = NULL;
+
+    g_assert(app_id && g_utf8_validate(app_id, -1, NULL));
+
+    path = g_string_new(FILECHOOSER_SETTINGS_PATH);
+    g_string_append(path, app_id);
+    g_string_append(path, "/");
+
+    settings = g_settings_new_with_path(FILECHOOSER_SETTINGS_SCHEMA, path->str);
+
+    return g_steal_pointer(&settings);
+}
+
+static void restore_last_folder(FileDialogHandle* handle, GtkFileChooser* filechooser) {
+    g_autoptr(GSettings) settings = NULL;
+    g_autofree char* last_folder_path = NULL;
+
+    if (!handle->app_id || *handle->app_id == '\0') {
+        return;
+    }
+
+    settings = get_filechooser_settings_for_app_id(handle->app_id);
+    last_folder_path = g_settings_get_string(settings, "last-folder-path");
+
+    if (last_folder_path && *last_folder_path) {
+        g_autoptr(GFile) last_folder = g_file_new_for_path(last_folder_path);
+        gtk_file_chooser_set_current_folder(filechooser, last_folder, NULL);
+    }
+}
+
+static void save_last_folder(FileDialogHandle* handle, GtkFileChooser* filechooser) {
+    g_autoptr(GListModel) files = NULL;
+    g_autofree char* path = NULL;
+
+    if (!handle->app_id || *handle->app_id == '\0') {
+        return;
+    }
+
+    files = gtk_file_chooser_get_files(filechooser);
+
+    for (guint i = g_list_model_get_n_items(files); i > 0; i--) {
+        g_autoptr(GFile) file = g_list_model_get_item(files, i - 1);
+
+        if (g_file_is_native(file)) {
+            path = g_file_get_path(file);
+
+            if (!g_file_test(path, G_FILE_TEST_IS_DIR)) {
+                g_autoptr(GFile) parent = g_file_get_parent(file);
+
+                g_clear_pointer(&path, g_free);
+                path = g_file_get_path(parent);
+            }
+
+            if (path) {
+                break;
+            }
+        }
+    }
+
+    if (path) {
+        g_autoptr(GSettings) settings = get_filechooser_settings_for_app_id(handle->app_id);
+        g_settings_set_string(settings, "last-folder-path", path);
+    }
 }
 
 static void add_choices(FileDialogHandle* handle, GVariantBuilder* builder) {
@@ -193,13 +263,91 @@ static void send_response(FileDialogHandle* handle) {
     file_dialog_handle_close(handle);
 }
 
+// Copied from
+// https://gitlab.gnome.org/GNOME/totem/blob/master/src/backend/bacon-video-widget.c#L3571
+static char* get_target_uri(GFile* file) {
+    g_autoptr(GFileInfo) info = NULL;
+    g_autofree char* target = NULL;
+
+    info = g_file_query_info(file, G_FILE_ATTRIBUTE_STANDARD_TARGET_URI, G_FILE_QUERY_INFO_NONE,
+                             NULL, NULL);
+    if (info != NULL) {
+        char const* val =
+            g_file_info_get_attribute_string(info, G_FILE_ATTRIBUTE_STANDARD_TARGET_URI);
+        if (val != NULL) {
+            target = g_strdup(val);
+        }
+    }
+
+    return g_steal_pointer(&target);
+}
+
+static GSList* get_uris(GtkFileChooser* filechooser) {
+    g_autoptr(GListModel) files = NULL;
+    g_autoptr(GSList) uris = NULL;
+    guint i;
+
+    files = gtk_file_chooser_get_files(filechooser);
+
+    for (i = 0; i < g_list_model_get_n_items(files); i++) {
+        g_autoptr(GFile) file = g_list_model_get_item(files, i);
+        g_autofree char* uri = g_file_get_uri(file);
+        char const* path;
+
+        /* Transform 'trash:///' and 'recent:///' URIs into
+         * local ones.
+         */
+        if (g_file_has_uri_scheme(file, "trash") || g_file_has_uri_scheme(file, "recent")) {
+            g_autofree char* target_uri = get_target_uri(file);
+            if (target_uri != NULL) {
+                g_clear_pointer(&uri, g_free);
+                uri = g_steal_pointer(&target_uri);
+            }
+        }
+
+        /* GTK4's file chooser does not translate the selected files
+         * to a file:// URI, so do that ourselves here. The portal
+         * expects only file:// URIs from backends.
+         */
+        path = g_file_peek_path(file);
+        if (!g_file_has_uri_scheme(file, "file") && path != NULL) {
+            g_autofree char* filename_uri = g_filename_to_uri(path, NULL, NULL);
+            if (filename_uri != NULL) {
+                g_clear_pointer(&uri, g_free);
+                uri = g_steal_pointer(&filename_uri);
+            }
+        }
+
+        uris = g_slist_prepend(uris, g_steal_pointer(&uri));
+    }
+
+    uris = g_slist_reverse(uris);
+
+    return g_steal_pointer(&uris);
+}
+
+static void update_choices(GtkFileChooser* filechooser, FileDialogHandle* handle) {
+    g_autoptr(GList) choice_ids = NULL;
+    GList* l;
+
+    choice_ids = g_hash_table_get_keys(handle->choices);
+    for (l = choice_ids; l != NULL; l = l->next) {
+        char const* choice_id = l->data;
+        char const* value = gtk_file_chooser_get_choice(filechooser, choice_id);
+
+        g_hash_table_replace(handle->choices, (gpointer) choice_id, (gpointer) value);
+    }
+}
+
 static void file_chooser_response(GtkWidget* widget, int response, gpointer user_data) {
     FileDialogHandle* handle = user_data;
+    char const* read_only;
 
     switch (response) {
         default:
             g_warning("Unexpected response: %d", response);
-            /* Fall through */
+            G_GNUC_FALLTHROUGH;
+
         case GTK_RESPONSE_DELETE_EVENT:
             handle->response = 2;
             handle->filter = NULL;
@@ -215,88 +363,64 @@ static void file_chooser_response(GtkWidget* widget, int response, gpointer user
         case GTK_RESPONSE_OK:
             handle->response = 0;
             handle->filter = gtk_file_chooser_get_filter(GTK_FILE_CHOOSER(widget));
-            handle->uris = gtk_file_chooser_get_uris(GTK_FILE_CHOOSER(widget));
+            handle->uris = get_uris(GTK_FILE_CHOOSER(widget));
+            save_last_folder(handle, GTK_FILE_CHOOSER(widget));
             break;
     }
 
+    read_only = gtk_file_chooser_get_choice(GTK_FILE_CHOOSER(widget), "read-only");
+    handle->allow_write = g_strcmp0(read_only, "false") == 0;
+
+    update_choices(GTK_FILE_CHOOSER(widget), handle);
     send_response(handle);
 }
 
-static void read_only_toggled(GtkToggleButton* button, gpointer user_data) {
-    FileDialogHandle* handle = user_data;
-
-    handle->allow_write = !gtk_toggle_button_get_active(button);
-}
-
-static void choice_changed(GtkComboBox* combo, FileDialogHandle* handle) {
-    char const* id;
-    char const* selected;
-
-    id = (char const*) g_object_get_data(G_OBJECT(combo), "choice-id");
-    selected = gtk_combo_box_get_active_id(combo);
-    g_hash_table_replace(handle->choices, (gpointer) id, (gpointer) selected);
-}
-
-static void choice_toggled(GtkToggleButton* toggle, FileDialogHandle* handle) {
-    char const* id;
-    char const* selected;
-
-    id = (char const*) g_object_get_data(G_OBJECT(toggle), "choice-id");
-    selected = gtk_toggle_button_get_active(toggle) ? "true" : "false";
-    g_hash_table_replace(handle->choices, (gpointer) id, (gpointer) selected);
-}
-
-static GtkWidget* deserialize_choice(GVariant* choice, FileDialogHandle* handle) {
-    GtkWidget* widget;
+static void deserialize_choice(GtkFileChooser* filechooser, GVariant* choice,
+                               FileDialogHandle* handle) {
+    g_auto(GStrv) option_labels = NULL;
+    g_auto(GStrv) options = NULL;
     char const* choice_id;
     char const* label;
     char const* selected;
     GVariant* choices;
-    int i;
+    size_t n_choices;
 
     g_variant_get(choice, "(&s&s@a(ss)&s)", &choice_id, &label, &choices, &selected);
 
-    if (g_variant_n_children(choices) > 0) {
-        GtkWidget* box;
-        GtkWidget* combo;
+    n_choices = g_variant_n_children(choices);
+    if (n_choices > 0) {
+        g_autoptr(GPtrArray) option_labels_array = NULL;
+        g_autoptr(GPtrArray) options_array = NULL;
+        size_t i;
 
-        box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-        gtk_container_add(GTK_CONTAINER(box), gtk_label_new(label));
+        option_labels_array = g_ptr_array_sized_new(n_choices + 1);
+        options_array = g_ptr_array_sized_new(n_choices + 1);
 
-        combo = gtk_combo_box_text_new();
-        g_object_set_data_full(G_OBJECT(combo), "choice-id", g_strdup(choice_id), g_free);
-        gtk_container_add(GTK_CONTAINER(box), combo);
-
-        for (i = 0; i < g_variant_n_children(choices); i++) {
+        for (i = 0; i < n_choices; i++) {
             char const* id;
             char const* text;
 
             g_variant_get_child(choices, i, "(&s&s)", &id, &text);
-            gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), id, text);
+
+            g_ptr_array_add(option_labels_array, g_strdup(text));
+            g_ptr_array_add(options_array, g_strdup(id));
         }
+
+        g_ptr_array_add(option_labels_array, NULL);
+        g_ptr_array_add(options_array, NULL);
 
         if (strcmp(selected, "") == 0) {
             g_variant_get_child(choices, 0, "(&s&s)", &selected, NULL);
         }
 
-        g_signal_connect(combo, "changed", G_CALLBACK(choice_changed), handle);
-        gtk_combo_box_set_active_id(GTK_COMBO_BOX(combo), selected);
-
-        widget = box;
-    } else {
-        GtkWidget* check;
-
-        check = gtk_check_button_new_with_label(label);
-        g_object_set_data_full(G_OBJECT(check), "choice-id", g_strdup(choice_id), g_free);
-        g_signal_connect(check, "toggled", G_CALLBACK(choice_toggled), handle);
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(check), g_strcmp0(selected, "true") == 0);
-
-        widget = check;
+        option_labels = (GStrv) g_ptr_array_free(g_steal_pointer(&option_labels_array), FALSE);
+        options = (GStrv) g_ptr_array_free(g_steal_pointer(&options_array), FALSE);
     }
 
-    gtk_widget_show_all(widget);
-
-    return widget;
+    gtk_file_chooser_add_choice(filechooser, choice_id, label, (char const**) options,
+                                (char const**) option_labels);
+    gtk_file_chooser_set_choice(filechooser, choice_id, selected);
+    g_hash_table_insert(handle->choices, (gpointer) choice_id, (gpointer) selected);
 }
 
 static gboolean handle_close(XdpImplRequest* object, GDBusMethodInvocation* invocation,
@@ -327,53 +451,31 @@ static gboolean handle_close(XdpImplRequest* object, GDBusMethodInvocation* invo
     return TRUE;
 }
 
-static void update_preview_cb(GtkFileChooser* file_chooser, gpointer data) {
-    GtkWidget* preview = GTK_WIDGET(data);
-    g_autofree char* filename = NULL;
-    g_autoptr(GdkPixbuf) pixbuf = NULL;
-
-    filename = gtk_file_chooser_get_preview_filename(file_chooser);
-    if (filename) {
-        pixbuf = gdk_pixbuf_new_from_file_at_size(filename, 128, 128, NULL);
-    }
-
-    if (pixbuf) {
-        g_autoptr(GdkPixbuf) tmp = NULL;
-
-        tmp = gdk_pixbuf_apply_embedded_orientation(pixbuf);
-        g_set_object(&pixbuf, tmp);
-    }
-
-    gtk_image_set_from_pixbuf(GTK_IMAGE(preview), pixbuf);
-    gtk_file_chooser_set_preview_widget_active(file_chooser, pixbuf != NULL);
-}
-
 static gboolean handle_open(XdpImplFileChooser* object, GDBusMethodInvocation* invocation,
                             char const* arg_handle, char const* arg_app_id,
                             char const* arg_parent_window, char const* arg_title,
                             GVariant* arg_options) {
+    g_autoptr(GtkWindowGroup) window_group = NULL;
+    g_autoptr(GVariant) choices = NULL;
+    g_autoptr(GVariant) current_filter = NULL;
     g_autoptr(Request) request = NULL;
+    ExternalWindow* external_parent = NULL;
+    GdkSurface* surface;
+    GtkWidget* fake_parent;
+    GtkWindow* dialog;
     gchar const* method_name;
     gchar const* sender;
     GtkFileChooserAction action;
     gboolean multiple;
     gboolean directory;
     gboolean modal;
-    GdkDisplay* display;
-    GdkScreen* screen;
-    GtkWidget* dialog;
-    ExternalWindow* external_parent = NULL;
-    GtkWidget* fake_parent;
     FileDialogHandle* handle;
     char const* cancel_label;
     char const* accept_label;
     GVariantIter* iter;
     char const* current_name;
     char const* path;
-    g_autoptr(GVariant) choices = NULL;
-    g_autoptr(GVariant) current_filter = NULL;
     GSList* filters = NULL;
-    GtkWidget* preview;
 
     method_name = g_dbus_method_invocation_get_method_name(invocation);
     sender = g_dbus_method_invocation_get_sender(invocation);
@@ -417,42 +519,31 @@ static gboolean handle_open(XdpImplFileChooser* object, GDBusMethodInvocation* i
         }
     }
 
-    if (external_parent) {
-        display = external_window_get_display(external_parent);
-    } else {
-        display = gdk_display_get_default();
-    }
-    screen = gdk_display_get_default_screen(display);
-
-    fake_parent =
-        g_object_new(GTK_TYPE_WINDOW, "type", GTK_WINDOW_TOPLEVEL, "screen", screen, NULL);
+    fake_parent = g_object_new(GTK_TYPE_WINDOW, NULL);
     g_object_ref_sink(fake_parent);
 
-    dialog = gtk_file_chooser_dialog_new(arg_title, GTK_WINDOW(fake_parent), action, cancel_label,
-                                         GTK_RESPONSE_CANCEL, accept_label, GTK_RESPONSE_OK, NULL);
-    gtk_window_set_modal(GTK_WINDOW(dialog), modal);
+    dialog = GTK_WINDOW(gtk_file_chooser_dialog_new(arg_title, GTK_WINDOW(fake_parent), action,
+                                                    cancel_label, GTK_RESPONSE_CANCEL, accept_label,
+                                                    GTK_RESPONSE_OK, NULL));
+    gtk_window_set_modal(dialog, modal);
 
     gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_OK);
     gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), multiple);
 
-    preview = gtk_image_new();
-    g_object_set(preview, "margin", 10, NULL);
-    gtk_widget_show(preview);
-    gtk_file_chooser_set_preview_widget(GTK_FILE_CHOOSER(dialog), preview);
-    gtk_file_chooser_set_preview_widget_active(GTK_FILE_CHOOSER(dialog), FALSE);
-    gtk_file_chooser_set_use_preview_label(GTK_FILE_CHOOSER(dialog), FALSE);
-    g_signal_connect(dialog, "update-preview", G_CALLBACK(update_preview_cb), preview);
+    window_group = gtk_window_group_new();
+    gtk_window_group_add_window(window_group, dialog);
 
     handle = g_new0(FileDialogHandle, 1);
     handle->impl = object;
     handle->invocation = invocation;
     handle->request = g_object_ref(request);
-    handle->dialog = g_object_ref(dialog);
+    handle->dialog = g_object_ref_sink(dialog);
     handle->action = action;
     handle->multiple = multiple;
     handle->choices = g_hash_table_new(g_str_hash, g_str_equal);
     handle->external_parent = external_parent;
     handle->allow_write = TRUE;
+    handle->app_id = g_strdup(arg_app_id);
 
     g_signal_connect(request, "handle-close", G_CALLBACK(handle_close), handle);
 
@@ -461,16 +552,11 @@ static gboolean handle_open(XdpImplFileChooser* object, GDBusMethodInvocation* i
     choices = g_variant_lookup_value(arg_options, "choices", G_VARIANT_TYPE("a(ssa(ss)s)"));
     if (choices) {
         int i;
-        GtkWidget* box;
 
-        box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-        gtk_widget_show(box);
         for (i = 0; i < g_variant_n_children(choices); i++) {
             GVariant* value = g_variant_get_child_value(choices, i);
-            gtk_container_add(GTK_CONTAINER(box), deserialize_choice(value, handle));
+            deserialize_choice(GTK_FILE_CHOOSER(dialog), value, handle);
         }
-
-        gtk_file_chooser_set_extra_widget(GTK_FILE_CHOOSER(dialog), box);
     }
 
     if (g_variant_lookup(arg_options, "filters", "a(sa(us))", &iter)) {
@@ -491,7 +577,7 @@ static gboolean handle_open(XdpImplFileChooser* object, GDBusMethodInvocation* i
         g_autoptr(GtkFileFilter) filter = NULL;
         char const* current_filter_name;
 
-        filter = g_object_ref_sink(gtk_file_filter_new_from_gvariant(current_filter));
+        filter = gtk_file_filter_new_from_gvariant(current_filter);
         current_filter_name = gtk_file_filter_get_name(filter);
 
         if (!filters) {
@@ -503,7 +589,7 @@ static gboolean handle_open(XdpImplFileChooser* object, GDBusMethodInvocation* i
             /* We are trying to select the default filter from the list of
              * filters. We want to naively take filter and pass it to
              * gtk_file_chooser_set_filter(), but it's not good enough
-             * because GTK just compares filters by pointer value, so the
+             * because GTK+ just compares filters by pointer value, so the
              * pointer itself has to match. We'll use the heuristic that
              * if two filters have the same name, they must be the same
              * unless the application is very dumb.
@@ -529,21 +615,34 @@ static gboolean handle_open(XdpImplFileChooser* object, GDBusMethodInvocation* i
 
     if (strcmp(method_name, "OpenFile") == 0) {
         if (g_variant_lookup(arg_options, "current_folder", "^&ay", &path)) {
-            gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), path);
+            g_autoptr(GFile) file = g_file_new_for_path(path);
+            gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), file, NULL);
         }
     } else if (strcmp(method_name, "SaveFile") == 0) {
-        if (g_variant_lookup(arg_options, "current_name", "&s", &current_name)) {
-            gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), current_name);
-        }
         /* TODO: is this useful ?
          * In a sandboxed situation, the current folder and current file
          * are likely in the fuse filesystem
          */
-        if (g_variant_lookup(arg_options, "current_folder", "^&ay", &path)) {
-            gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), path);
-        }
         if (g_variant_lookup(arg_options, "current_file", "^&ay", &path)) {
-            gtk_file_chooser_select_filename(GTK_FILE_CHOOSER(dialog), path);
+            g_autoptr(GFile) file = g_file_new_for_path(path);
+            if (g_file_test(path, G_FILE_TEST_EXISTS)) {
+                gtk_file_chooser_set_file(GTK_FILE_CHOOSER(dialog), file, NULL);
+            } else {
+                g_autoptr(GFile) folder = g_file_get_parent(file);
+                g_autofree char* name = g_file_get_basename(file);
+                gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), folder, NULL);
+                gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), name);
+            }
+        } else {
+            if (g_variant_lookup(arg_options, "current_name", "&s", &current_name)) {
+                gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), current_name);
+            }
+            if (g_variant_lookup(arg_options, "current_folder", "^&ay", &path)) {
+                g_autoptr(GFile) file = g_file_new_for_path(path);
+                gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), file, NULL);
+            } else {
+                restore_last_folder(handle, GTK_FILE_CHOOSER(dialog));
+            }
         }
     } else if (strcmp(method_name, "SaveFiles") == 0) {
         /* TODO: is this useful ?
@@ -551,7 +650,10 @@ static gboolean handle_open(XdpImplFileChooser* object, GDBusMethodInvocation* i
          * are likely in the fuse filesystem
          */
         if (g_variant_lookup(arg_options, "current_folder", "^&ay", &path)) {
-            gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), path);
+            g_autoptr(GFile) file = g_file_new_for_path(path);
+            gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), file, NULL);
+        } else {
+            restore_last_folder(handle, GTK_FILE_CHOOSER(dialog));
         }
 
         if (g_variant_lookup(arg_options, "files", "aay", &iter)) {
@@ -562,36 +664,28 @@ static gboolean handle_open(XdpImplFileChooser* object, GDBusMethodInvocation* i
 
             g_variant_iter_free(iter);
         }
+    } else {
+        restore_last_folder(handle, GTK_FILE_CHOOSER(dialog));
     }
 
     g_object_unref(fake_parent);
 
-    gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), TRUE);
-
     if (action == GTK_FILE_CHOOSER_ACTION_OPEN) {
-        GtkWidget* readonly;
-        GtkWidget* extra;
-
-        extra = gtk_file_chooser_get_extra_widget(GTK_FILE_CHOOSER(dialog));
-
-        readonly = gtk_check_button_new_with_label(_("Open files read-only"));
-        gtk_widget_show(readonly);
-
-        g_signal_connect(readonly, "toggled", G_CALLBACK(read_only_toggled), handle);
-
-        if (GTK_IS_CONTAINER(extra)) {
-            gtk_container_add(GTK_CONTAINER(extra), readonly);
-        } else {
-            gtk_file_chooser_set_extra_widget(GTK_FILE_CHOOSER(dialog), readonly);
-        }
+        gtk_file_chooser_add_choice(GTK_FILE_CHOOSER(dialog), "read-only",
+                                    _("Open files read-only"), NULL, NULL);
+    } else if (action == GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER) {
+        gtk_file_chooser_add_choice(GTK_FILE_CHOOSER(dialog), "read-only",
+                                    _("Open directories read-only"), NULL, NULL);
     }
 
-    gtk_widget_show(dialog);
-    gtk_window_present(GTK_WINDOW(dialog));
+    gtk_widget_realize(GTK_WIDGET(dialog));
 
+    surface = gtk_native_get_surface(GTK_NATIVE(dialog));
     if (external_parent) {
-        external_window_set_parent_of(external_parent, gtk_widget_get_window(dialog));
+        external_window_set_parent_of(external_parent, surface);
     }
+
+    gtk_window_present(dialog);
 
     request_export(request, g_dbus_method_invocation_get_connection(invocation));
 

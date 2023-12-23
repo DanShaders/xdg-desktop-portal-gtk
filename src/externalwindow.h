@@ -41,12 +41,12 @@ struct _ExternalWindow {
 struct _ExternalWindowClass {
     GObjectClass parent_class;
 
-    void (*set_parent_of)(ExternalWindow* external_window, GdkWindow* child_window);
+    void (*set_parent_of)(ExternalWindow* external_window, GdkSurface* child_window);
 };
 
 GType external_window_get_type(void);
 ExternalWindow* create_external_window_from_handle(char const* handle_str);
 
-void external_window_set_parent_of(ExternalWindow* external_window, GdkWindow* child_window);
+void external_window_set_parent_of(ExternalWindow* external_window, GdkSurface* child_window);
 
 GdkDisplay* external_window_get_display(ExternalWindow* external_window);
