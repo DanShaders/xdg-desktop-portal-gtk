@@ -22,5 +22,4 @@
 
 #include <gio/gio.h>
 
-gboolean dynamic_launcher_init (GDBusConnection  *bus,
-                                GError          **error);
+gboolean dynamic_launcher_init(GDBusConnection* bus, GError** error);

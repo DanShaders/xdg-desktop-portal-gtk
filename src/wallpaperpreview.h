@@ -22,13 +22,13 @@
 
 #include <gtk/gtk.h>
 
-#define WALLPAPER_TYPE_PREVIEW (wallpaper_preview_get_type ())
-#define WALLPAPER_PREVIEW(object) (G_TYPE_CHECK_INSTANCE_CAST (object, WALLPAPER_TYPE_PREVIEW, WallpaperPreview))
+#define WALLPAPER_TYPE_PREVIEW (wallpaper_preview_get_type())
+#define WALLPAPER_PREVIEW(object) \
+    (G_TYPE_CHECK_INSTANCE_CAST(object, WALLPAPER_TYPE_PREVIEW, WallpaperPreview))
 
 typedef struct _WallpaperPreview WallpaperPreview;
 typedef struct _WallpaperPreviewClass WallpaperPreviewClass;
 
-GType              wallpaper_preview_get_type  (void) G_GNUC_CONST;
+GType wallpaper_preview_get_type(void) G_GNUC_CONST;
 
-void               wallpaper_preview_set_image (WallpaperPreview *self,
-                                                const gchar *image_uri);
+void wallpaper_preview_set_image(WallpaperPreview* self, gchar const* image_uri);

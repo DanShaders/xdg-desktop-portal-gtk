@@ -22,4 +22,4 @@
 
 #include <gio/gio.h>
 
-gboolean lockdown_init (GDBusConnection *bus, GError **error);
+gboolean lockdown_init(GDBusConnection* bus, GError** error);

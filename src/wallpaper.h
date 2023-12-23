@@ -22,4 +22,4 @@
 
 #include <gio/gio.h>
 
-gboolean wallpaper_init (GDBusConnection *bus, GError **error);
+gboolean wallpaper_init(GDBusConnection* bus, GError** error);

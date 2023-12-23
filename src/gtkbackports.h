@@ -23,20 +23,17 @@
 #include <gtk/gtk.h>
 #include <gtk/gtkunixprint.h>
 
-#if !GTK_CHECK_VERSION(3,22,0)
+#if !GTK_CHECK_VERSION(3, 22, 0)
 
-GVariant         *gtk_file_filter_to_gvariant          (GtkFileFilter     *filter);
-GtkFileFilter    *gtk_file_filter_new_from_gvariant    (GVariant          *variant);
+GVariant* gtk_file_filter_to_gvariant(GtkFileFilter* filter);
+GtkFileFilter* gtk_file_filter_new_from_gvariant(GVariant* variant);
 
-GVariant         *gtk_print_settings_to_gvariant       (GtkPrintSettings  *settings);
-GtkPrintSettings *gtk_print_settings_new_from_gvariant (GVariant          *variant);
+GVariant* gtk_print_settings_to_gvariant(GtkPrintSettings* settings);
+GtkPrintSettings* gtk_print_settings_new_from_gvariant(GVariant* variant);
 
-GVariant          *gtk_page_setup_to_gvariant           (GtkPageSetup     *setup);
-GtkPageSetup      *gtk_page_setup_new_from_gvariant     (GVariant         *variant);
+GVariant* gtk_page_setup_to_gvariant(GtkPageSetup* setup);
+GtkPageSetup* gtk_page_setup_new_from_gvariant(GVariant* variant);
 
-gboolean           gtk_print_job_set_source_fd          (GtkPrintJob      *job,
-                                                         int               fd,
-                                                         GError          **error);
-
+gboolean gtk_print_job_set_source_fd(GtkPrintJob* job, int fd, GError** error);
 
 #endif

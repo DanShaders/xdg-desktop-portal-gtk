@@ -24,12 +24,12 @@
 
 #include "externalwindow.h"
 
-
-#define EXTERNAL_TYPE_WINDOW_X11 (external_window_x11_get_type ())
-#define EXTERNAL_WINDOW_X11(object) (G_TYPE_CHECK_INSTANCE_CAST (object, EXTERNAL_TYPE_WINDOW_X11, ExternalWindowX11))
+#define EXTERNAL_TYPE_WINDOW_X11 (external_window_x11_get_type())
+#define EXTERNAL_WINDOW_X11(object) \
+    (G_TYPE_CHECK_INSTANCE_CAST(object, EXTERNAL_TYPE_WINDOW_X11, ExternalWindowX11))
 
 typedef struct _ExternalWindowX11 ExternalWindowX11;
 typedef struct _ExternalWindowX11Class ExternalWindowX11Class;
 
-GType external_window_get_type (void);
-ExternalWindowX11 *external_window_x11_new (const char *handle_str);
+GType external_window_get_type(void);
+ExternalWindowX11* external_window_x11_new(char const* handle_str);

@@ -20,276 +20,229 @@
 
 #define _GNU_SOURCE 1
 
-#include "config.h"
-
 #include <errno.h>
+#include <fcntl.h>
+#include <gio/gdesktopappinfo.h>
+#include <gio/gio.h>
+#include <gio/gunixfdlist.h>
+#include <glib/gi18n.h>
+#include <gtk/gtk.h>
 #include <locale.h>
 #include <string.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
+#include <sys/types.h>
 
-#include <gtk/gtk.h>
-
-#include <gio/gio.h>
-#include <gio/gdesktopappinfo.h>
-#include <gio/gunixfdlist.h>
-
-#include <glib/gi18n.h>
-#include <locale.h>
-
+#include "config.h"
+#include "filechooser.h"
+#include "request.h"
 #include "xdg-desktop-portal-dbus.h"
 
-#include "request.h"
-#include "filechooser.h"
-
 #ifdef BUILD_APPCHOOSER
-#include "appchooser.h"
+#    include "appchooser.h"
 #endif
 
-#include "print.h"
-#include "dynamic-launcher.h"
-
-#include "notification.h"
-#include "inhibit.h"
 #include "access.h"
 #include "account.h"
+#include "dynamic-launcher.h"
 #include "email.h"
+#include "inhibit.h"
+#include "notification.h"
+#include "print.h"
 
 #ifdef BUILD_LOCKDOWN
-#include "lockdown.h"
+#    include "lockdown.h"
 #endif
 
 #ifdef BUILD_SETTINGS
-#include "settings.h"
+#    include "settings.h"
 #endif
 
 #ifdef BUILD_WALLPAPER
-#include "wallpaper.h"
+#    include "wallpaper.h"
 #endif
 
-
-static GMainLoop *loop = NULL;
-static GHashTable *outstanding_handles = NULL;
+static GMainLoop* loop = NULL;
+static GHashTable* outstanding_handles = NULL;
 
 static gboolean opt_verbose;
 static gboolean opt_replace;
 static gboolean show_version;
 
 static GOptionEntry entries[] = {
-  { "verbose", 'v', 0, G_OPTION_ARG_NONE, &opt_verbose, "Print debug information during command processing", NULL },
-  { "replace", 'r', 0, G_OPTION_ARG_NONE, &opt_replace, "Replace a running instance", NULL },
-  { "version", 0, 0, G_OPTION_ARG_NONE, &show_version, "Show program version.", NULL},
-  { NULL }
-};
+    {"verbose", 'v', 0, G_OPTION_ARG_NONE, &opt_verbose,
+     "Print debug information during command processing", NULL},
+    {"replace", 'r', 0, G_OPTION_ARG_NONE, &opt_replace, "Replace a running instance", NULL},
+    {"version", 0, 0, G_OPTION_ARG_NONE, &show_version, "Show program version.", NULL},
+    {NULL}};
 
-static void
-message_handler (const gchar *log_domain,
-                 GLogLevelFlags log_level,
-                 const gchar *message,
-                 gpointer user_data)
-{
-  /* Make this look like normal console output */
-  if (log_level & G_LOG_LEVEL_DEBUG)
-    printf ("XDP: %s\n", message);
-  else
-    printf ("%s: %s\n", g_get_prgname (), message);
-}
-
-static void
-printerr_handler (const gchar *string)
-{
-  int is_tty = isatty (1);
-  const char *prefix = "";
-  const char *suffix = "";
-  if (is_tty)
-    {
-      prefix = "\x1b[31m\x1b[1m"; /* red, bold */
-      suffix = "\x1b[22m\x1b[0m"; /* bold off, color reset */
+static void message_handler(gchar const* log_domain, GLogLevelFlags log_level, gchar const* message,
+                            gpointer user_data) {
+    /* Make this look like normal console output */
+    if (log_level & G_LOG_LEVEL_DEBUG) {
+        printf("XDP: %s\n", message);
+    } else {
+        printf("%s: %s\n", g_get_prgname(), message);
     }
-  fprintf (stderr, "%serror: %s%s\n", prefix, suffix, string);
 }
 
-static void
-on_bus_acquired (GDBusConnection *connection,
-                 const gchar     *name,
-                 gpointer         user_data)
-{
-  GError *error = NULL;
+static void printerr_handler(gchar const* string) {
+    int is_tty = isatty(1);
+    char const* prefix = "";
+    char const* suffix = "";
+    if (is_tty) {
+        prefix = "\x1b[31m\x1b[1m"; /* red, bold */
+        suffix = "\x1b[22m\x1b[0m"; /* bold off, color reset */
+    }
+    fprintf(stderr, "%serror: %s%s\n", prefix, suffix, string);
+}
 
-  if (!file_chooser_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+static void on_bus_acquired(GDBusConnection* connection, gchar const* name, gpointer user_data) {
+    GError* error = NULL;
+
+    if (!file_chooser_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 
 #ifdef BUILD_APPCHOOSER
-  if (!app_chooser_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!app_chooser_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 #endif
 
-  if (!print_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!print_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 
-  if (!notification_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!notification_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 
-  if (!inhibit_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!inhibit_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 
-  if (!access_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!access_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 
-  if (!account_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!account_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 
-  if (!email_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!email_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 
-  if (!dynamic_launcher_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!dynamic_launcher_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 
 #ifdef BUILD_LOCKDOWN
-  if (!lockdown_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!lockdown_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 #endif
 
 #ifdef BUILD_SETTINGS
-  if (!settings_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!settings_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 #endif
 
 #ifdef BUILD_WALLPAPER
-  if (!wallpaper_init (connection, &error))
-    {
-      g_warning ("error: %s\n", error->message);
-      g_clear_error (&error);
+    if (!wallpaper_init(connection, &error)) {
+        g_warning("error: %s\n", error->message);
+        g_clear_error(&error);
     }
 #endif
 }
 
-static void
-on_name_acquired (GDBusConnection *connection,
-                  const gchar     *name,
-                  gpointer         user_data)
-{
-  g_debug ("org.freedesktop.impl.portal.desktop.gtk acquired");
+static void on_name_acquired(GDBusConnection* connection, gchar const* name, gpointer user_data) {
+    g_debug("org.freedesktop.impl.portal.desktop.gtk acquired");
 }
 
-static void
-on_name_lost (GDBusConnection *connection,
-              const gchar     *name,
-              gpointer         user_data)
-{
-  g_main_loop_quit (loop);
+static void on_name_lost(GDBusConnection* connection, gchar const* name, gpointer user_data) {
+    g_main_loop_quit(loop);
 }
 
-int
-main (int argc, char *argv[])
-{
-  guint owner_id;
-  g_autoptr(GError) error = NULL;
-  GDBusConnection  *session_bus;
-  g_autoptr(GOptionContext) context = NULL;
+int main(int argc, char* argv[]) {
+    guint owner_id;
+    g_autoptr(GError) error = NULL;
+    GDBusConnection* session_bus;
+    g_autoptr(GOptionContext) context = NULL;
 
-  setlocale (LC_ALL, "");
-  bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
-  bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
-  textdomain (GETTEXT_PACKAGE);
+    setlocale(LC_ALL, "");
+    bindtextdomain(GETTEXT_PACKAGE, LOCALEDIR);
+    bind_textdomain_codeset(GETTEXT_PACKAGE, "UTF-8");
+    textdomain(GETTEXT_PACKAGE);
 
-  /* Avoid pointless and confusing recursion */
-  g_unsetenv ("GTK_USE_PORTAL");
+    /* Avoid pointless and confusing recursion */
+    g_unsetenv("GTK_USE_PORTAL");
 
-  gtk_init (&argc, &argv);
+    gtk_init(&argc, &argv);
 
-  context = g_option_context_new ("- portal backends");
-  g_option_context_set_summary (context,
-      "A backend implementation for xdg-desktop-portal.");
-  g_option_context_set_description (context,
-      "xdg-desktop-portal-gtk provides D-Bus interfaces that\n"
-      "are used by xdg-desktop-portal to implement portals\n"
-      "\n"
-      "Documentation for the available D-Bus interfaces can be found at\n"
-      "https://flatpak.github.io/xdg-desktop-portal/docs/\n"
-      "\n"
-      "Please report issues at https://github.com/flatpak/xdg-desktop-portal-gtk/issues");
-  g_option_context_add_main_entries (context, entries, NULL);
-  if (!g_option_context_parse (context, &argc, &argv, &error))
-    {
-      g_printerr ("%s: %s", g_get_application_name (), error->message);
-      g_printerr ("\n");
-      g_printerr ("Try \"%s --help\" for more information.",
-                  g_get_prgname ());
-      g_printerr ("\n");
-      return 1;
+    context = g_option_context_new("- portal backends");
+    g_option_context_set_summary(context, "A backend implementation for xdg-desktop-portal.");
+    g_option_context_set_description(
+        context,
+        "xdg-desktop-portal-gtk provides D-Bus interfaces that\n"
+        "are used by xdg-desktop-portal to implement portals\n"
+        "\n"
+        "Documentation for the available D-Bus interfaces can be found at\n"
+        "https://flatpak.github.io/xdg-desktop-portal/docs/\n"
+        "\n"
+        "Please report issues at https://github.com/flatpak/xdg-desktop-portal-gtk/issues");
+    g_option_context_add_main_entries(context, entries, NULL);
+    if (!g_option_context_parse(context, &argc, &argv, &error)) {
+        g_printerr("%s: %s", g_get_application_name(), error->message);
+        g_printerr("\n");
+        g_printerr("Try \"%s --help\" for more information.", g_get_prgname());
+        g_printerr("\n");
+        return 1;
     }
 
-  if (show_version)
-    {
-      g_print (PACKAGE_STRING "\n");
-      return 0;
+    if (show_version) {
+        g_print(PACKAGE_STRING "\n");
+        return 0;
     }
 
-  g_set_printerr_handler (printerr_handler);
+    g_set_printerr_handler(printerr_handler);
 
-  if (opt_verbose)
-    g_log_set_handler (NULL, G_LOG_LEVEL_DEBUG, message_handler, NULL);
-
-  g_set_prgname ("xdg-desktop-portal-gtk");
-
-  loop = g_main_loop_new (NULL, FALSE);
-
-  outstanding_handles = g_hash_table_new (g_str_hash, g_str_equal);
-
-  session_bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
-  if (session_bus == NULL)
-    {
-      g_printerr ("No session bus: %s\n", error->message);
-      return 2;
+    if (opt_verbose) {
+        g_log_set_handler(NULL, G_LOG_LEVEL_DEBUG, message_handler, NULL);
     }
 
-  owner_id = g_bus_own_name (G_BUS_TYPE_SESSION,
-                             "org.freedesktop.impl.portal.desktop.gtk",
-                             G_BUS_NAME_OWNER_FLAGS_ALLOW_REPLACEMENT | (opt_replace ? G_BUS_NAME_OWNER_FLAGS_REPLACE : 0),
-                             on_bus_acquired,
-                             on_name_acquired,
-                             on_name_lost,
-                             NULL,
-                             NULL);
+    g_set_prgname("xdg-desktop-portal-gtk");
 
-  g_main_loop_run (loop);
+    loop = g_main_loop_new(NULL, FALSE);
 
-  g_bus_unown_name (owner_id);
+    outstanding_handles = g_hash_table_new(g_str_hash, g_str_equal);
 
-  return 0;
+    session_bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+    if (session_bus == NULL) {
+        g_printerr("No session bus: %s\n", error->message);
+        return 2;
+    }
+
+    owner_id = g_bus_own_name(G_BUS_TYPE_SESSION, "org.freedesktop.impl.portal.desktop.gtk",
+                              G_BUS_NAME_OWNER_FLAGS_ALLOW_REPLACEMENT |
+                                  (opt_replace ? G_BUS_NAME_OWNER_FLAGS_REPLACE : 0),
+                              on_bus_acquired, on_name_acquired, on_name_lost, NULL, NULL);
+
+    g_main_loop_run(loop);
+
+    g_bus_unown_name(owner_id);
+
+    return 0;
 }

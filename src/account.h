@@ -22,4 +22,4 @@
 
 #include <gio/gio.h>
 
-gboolean account_init (GDBusConnection *bus, GError **error);
+gboolean account_init(GDBusConnection* bus, GError** error);

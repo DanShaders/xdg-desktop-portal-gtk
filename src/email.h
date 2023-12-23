@@ -22,4 +22,4 @@
 
 #include <gio/gio.h>
 
-gboolean email_init (GDBusConnection *bus, GError **error);
+gboolean email_init(GDBusConnection* bus, GError** error);

@@ -23,34 +23,30 @@
 typedef struct _Session Session;
 typedef struct _SessionClass SessionClass;
 
-struct _Session
-{
-  XdpImplSessionSkeleton parent;
+struct _Session {
+    XdpImplSessionSkeleton parent;
 
-  gboolean exported;
-  gboolean closed;
-  char *id;
+    gboolean exported;
+    gboolean closed;
+    char* id;
 };
 
-struct _SessionClass
-{
-  XdpImplSessionSkeletonClass parent_class;
+struct _SessionClass {
+    XdpImplSessionSkeletonClass parent_class;
 
-  void (*close) (Session *session);
+    void (*close)(Session* session);
 };
 
-GType session_get_type (void);
+GType session_get_type(void);
 
-G_DEFINE_AUTOPTR_CLEANUP_FUNC (Session, g_object_unref)
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(Session, g_object_unref)
 
-Session *lookup_session (const char *id);
+Session* lookup_session(char const* id);
 
-Session *session_new (const char *id);
+Session* session_new(char const* id);
 
-void session_close (Session *session);
+void session_close(Session* session);
 
-gboolean session_export (Session *session,
-                         GDBusConnection *connection,
-                         GError **error);
+gboolean session_export(Session* session, GDBusConnection* connection, GError** error);
 
-void session_unexport (Session *session);
+void session_unexport(Session* session);

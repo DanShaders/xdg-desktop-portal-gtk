@@ -22,20 +22,9 @@
 
 #include <gio/gio.h>
 
-typedef void (*ActivateAction) (GDBusConnection *connection,
-                                const char *app_id,
-                                const char *id,
-                                const char *name,
-                                GVariant *parameter,
-                                gpointer data);
+typedef void (*ActivateAction)(GDBusConnection* connection, char const* app_id, char const* id,
+                               char const* name, GVariant* parameter, gpointer data);
 
-void fdo_add_notification (GDBusConnection *connection,
-                           const char *app_id,
-                           const char *id,
-                           GVariant *notification,
-                           ActivateAction activate,
-                           gpointer data);
-gboolean fdo_remove_notification (GDBusConnection *connection,
-                                  const char *app_id,
-                                  const char *id);
-
+void fdo_add_notification(GDBusConnection* connection, char const* app_id, char const* id,
+                          GVariant* notification, ActivateAction activate, gpointer data);
+gboolean fdo_remove_notification(GDBusConnection* connection, char const* app_id, char const* id);

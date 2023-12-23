@@ -22,4 +22,4 @@
 
 #include <gio/gio.h>
 
-gboolean inhibit_init (GDBusConnection *bus, GError **error);
+gboolean inhibit_init(GDBusConnection* bus, GError** error);

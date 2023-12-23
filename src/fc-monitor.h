@@ -25,13 +25,13 @@
 
 G_BEGIN_DECLS
 
-#define FC_TYPE_MONITOR (fc_monitor_get_type ())
-G_DECLARE_FINAL_TYPE (FcMonitor, fc_monitor, FC, MONITOR, GObject)
+#define FC_TYPE_MONITOR (fc_monitor_get_type())
+G_DECLARE_FINAL_TYPE(FcMonitor, fc_monitor, FC, MONITOR, GObject)
 
-FcMonitor *fc_monitor_new (void);
+FcMonitor* fc_monitor_new(void);
 
-void fc_monitor_start (FcMonitor *monitor);
-void fc_monitor_stop  (FcMonitor *monitor);
+void fc_monitor_start(FcMonitor* monitor);
+void fc_monitor_stop(FcMonitor* monitor);
 
 G_END_DECLS
 

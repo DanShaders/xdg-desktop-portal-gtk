@@ -26,29 +26,24 @@
 typedef struct _Request Request;
 typedef struct _RequestClass RequestClass;
 
-struct _Request
-{
-  XdpImplRequestSkeleton parent_instance;
+struct _Request {
+    XdpImplRequestSkeleton parent_instance;
 
-  gboolean exported;
-  char *sender;
-  char *app_id;
-  char *id;
+    gboolean exported;
+    char* sender;
+    char* app_id;
+    char* id;
 };
 
-struct _RequestClass
-{
-  XdpImplRequestSkeletonClass parent_class;
+struct _RequestClass {
+    XdpImplRequestSkeletonClass parent_class;
 };
 
-GType request_get_type (void) G_GNUC_CONST;
+GType request_get_type(void) G_GNUC_CONST;
 
-G_DEFINE_AUTOPTR_CLEANUP_FUNC (Request, g_object_unref)
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(Request, g_object_unref)
 
-Request *request_new (const char *sender,
-                      const char *app_id,
-                      const char *id);
+Request* request_new(char const* sender, char const* app_id, char const* id);
 
-void request_export (Request *request,
-                     GDBusConnection *connection);
-void request_unexport (Request *request);
+void request_export(Request* request, GDBusConnection* connection);
+void request_unexport(Request* request);

@@ -24,11 +24,12 @@
 
 #include "externalwindow.h"
 
-#define EXTERNAL_TYPE_WINDOW_WAYLAND (external_window_wayland_get_type ())
-#define EXTERNAL_WINDOW_WAYLAND(object) (G_TYPE_CHECK_INSTANCE_CAST (object, EXTERNAL_TYPE_WINDOW_WAYLAND, ExternalWindowWayland))
+#define EXTERNAL_TYPE_WINDOW_WAYLAND (external_window_wayland_get_type())
+#define EXTERNAL_WINDOW_WAYLAND(object) \
+    (G_TYPE_CHECK_INSTANCE_CAST(object, EXTERNAL_TYPE_WINDOW_WAYLAND, ExternalWindowWayland))
 
 typedef struct _ExternalWindowWayland ExternalWindowWayland;
 typedef struct _ExternalWindowWaylandClass ExternalWindowWaylandClass;
 
-GType external_window_wayland_get_type (void);
-ExternalWindowWayland *external_window_wayland_new (const char *handle_str);
+GType external_window_wayland_get_type(void);
+ExternalWindowWayland* external_window_wayland_new(char const* handle_str);

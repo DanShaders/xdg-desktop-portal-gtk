@@ -18,101 +18,83 @@
  *       Jonas Ådahl <jadahl@redhat.com>
  */
 
-#include "config.h"
+#include "externalwindow-wayland.h"
 
 #include <gdk/gdk.h>
 #include <gdk/gdkwayland.h>
 
-#include "externalwindow-wayland.h"
+#include "config.h"
 
-static GdkDisplay *wayland_display;
+static GdkDisplay* wayland_display;
 
-struct _ExternalWindowWayland
-{
-  ExternalWindow parent;
+struct _ExternalWindowWayland {
+    ExternalWindow parent;
 
-  char *handle_str;
+    char* handle_str;
 };
 
-struct _ExternalWindowWaylandClass
-{
-  ExternalWindowClass parent_class;
+struct _ExternalWindowWaylandClass {
+    ExternalWindowClass parent_class;
 };
 
-G_DEFINE_TYPE (ExternalWindowWayland, external_window_wayland,
-               EXTERNAL_TYPE_WINDOW)
+G_DEFINE_TYPE(ExternalWindowWayland, external_window_wayland, EXTERNAL_TYPE_WINDOW)
 
-static GdkDisplay *
-get_wayland_display (void)
-{
-  if (wayland_display)
-    return wayland_display;
-
-  gdk_set_allowed_backends ("wayland");
-  wayland_display = gdk_display_open (NULL);
-  gdk_set_allowed_backends (NULL);
-  if (!wayland_display)
-    g_warning ("Failed to open Wayland display");
-
-  return wayland_display;
-}
-
-ExternalWindowWayland *
-external_window_wayland_new (const char *handle_str)
-{
-  ExternalWindowWayland *external_window_wayland;
-  GdkDisplay *display;
-
-  display = get_wayland_display ();
-  if (!display)
-    {
-      g_warning ("No Wayland display connection, ignoring Wayland parent");
-      return NULL;
+static GdkDisplay* get_wayland_display(void) {
+    if (wayland_display) {
+        return wayland_display;
     }
 
-  external_window_wayland = g_object_new (EXTERNAL_TYPE_WINDOW_WAYLAND,
-                                          "display", display,
-                                          NULL);
-  external_window_wayland->handle_str = g_strdup (handle_str);
+    gdk_set_allowed_backends("wayland");
+    wayland_display = gdk_display_open(NULL);
+    gdk_set_allowed_backends(NULL);
+    if (!wayland_display) {
+        g_warning("Failed to open Wayland display");
+    }
 
-  return external_window_wayland;
+    return wayland_display;
 }
 
-static void
-external_window_wayland_set_parent_of (ExternalWindow *external_window,
-                                       GdkWindow      *child_window)
-{
-  ExternalWindowWayland *external_window_wayland =
-    EXTERNAL_WINDOW_WAYLAND (external_window);
-  char *handle_str = external_window_wayland->handle_str;
+ExternalWindowWayland* external_window_wayland_new(char const* handle_str) {
+    ExternalWindowWayland* external_window_wayland;
+    GdkDisplay* display;
 
-  if (!gdk_wayland_window_set_transient_for_exported (child_window, handle_str))
-    g_warning ("Failed to set portal window transient for external parent");
+    display = get_wayland_display();
+    if (!display) {
+        g_warning("No Wayland display connection, ignoring Wayland parent");
+        return NULL;
+    }
+
+    external_window_wayland = g_object_new(EXTERNAL_TYPE_WINDOW_WAYLAND, "display", display, NULL);
+    external_window_wayland->handle_str = g_strdup(handle_str);
+
+    return external_window_wayland;
 }
 
-static void
-external_window_wayland_dispose (GObject *object)
-{
-  ExternalWindowWayland *external_window_wayland =
-    EXTERNAL_WINDOW_WAYLAND (object);
+static void external_window_wayland_set_parent_of(ExternalWindow* external_window,
+                                                  GdkWindow* child_window) {
+    ExternalWindowWayland* external_window_wayland = EXTERNAL_WINDOW_WAYLAND(external_window);
+    char* handle_str = external_window_wayland->handle_str;
 
-  g_free (external_window_wayland->handle_str);
-
-  G_OBJECT_CLASS (external_window_wayland_parent_class)->dispose (object);
+    if (!gdk_wayland_window_set_transient_for_exported(child_window, handle_str)) {
+        g_warning("Failed to set portal window transient for external parent");
+    }
 }
 
-static void
-external_window_wayland_init (ExternalWindowWayland *external_window_wayland)
-{
+static void external_window_wayland_dispose(GObject* object) {
+    ExternalWindowWayland* external_window_wayland = EXTERNAL_WINDOW_WAYLAND(object);
+
+    g_free(external_window_wayland->handle_str);
+
+    G_OBJECT_CLASS(external_window_wayland_parent_class)->dispose(object);
 }
 
-static void
-external_window_wayland_class_init (ExternalWindowWaylandClass *klass)
-{
-  GObjectClass *object_class = G_OBJECT_CLASS (klass);
-  ExternalWindowClass *external_window_class = EXTERNAL_WINDOW_CLASS (klass);
+static void external_window_wayland_init(ExternalWindowWayland* external_window_wayland) {}
 
-  object_class->dispose = external_window_wayland_dispose;
+static void external_window_wayland_class_init(ExternalWindowWaylandClass* klass) {
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    ExternalWindowClass* external_window_class = EXTERNAL_WINDOW_CLASS(klass);
 
-  external_window_class->set_parent_of = external_window_wayland_set_parent_of;
+    object_class->dispose = external_window_wayland_dispose;
+
+    external_window_class->set_parent_of = external_window_wayland_set_parent_of;
 }
