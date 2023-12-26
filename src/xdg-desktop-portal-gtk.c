@@ -190,6 +190,7 @@ int main(int argc, char* argv[]) {
 
     /* Avoid pointless and confusing recursion */
     g_unsetenv("GTK_USE_PORTAL");
+    g_assert(g_setenv("ADW_DISABLE_PORTAL", "1", TRUE));
 
     adw_init();
 
